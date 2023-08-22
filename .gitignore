@@ -15,3 +15,6 @@ dns-pihole/dns_entries.txt
 
 ansible/inventory.ini
 ansible/02.nginx_lb.yaml
+ansible/06.initialize_cluster.yaml
+ansible/07.join_command.yaml
+ansible/00.ansible-vars.yml
