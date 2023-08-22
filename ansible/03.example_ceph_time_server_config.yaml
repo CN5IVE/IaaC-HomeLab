@@ -1,0 +1,35 @@
+---
+- name: Configure System Time and NTP
+  hosts: ceph
+  become: true
+  tasks:
+    - name: Install NTP
+      apt:
+        name: ntp
+        state: present
+
+    - name: Update /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "192.168.10.5 kube-andreas-01.local.lan"
+
+
+    - name: Disable systemd-timesyncd
+      systemd:
+        name: systemd-timesyncd
+        enabled: no
+        masked: yes
+      ignore_errors: yes
+
+    - name: Update NTP configuration
+      lineinfile:
+        path: /etc/ntp.conf
+        regexp: '^server.*'
+        line: "server test prefer iburst"
+      notify: Restart NTP service
+
+  handlers:
+    - name: Restart NTP service
+      service:
+        name: ntp
+        state: restarted

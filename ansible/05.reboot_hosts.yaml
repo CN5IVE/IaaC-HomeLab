@@ -1,0 +1,21 @@
+- name: Reboot and Show Hostnames After Reboot
+  hosts: k8s_cluster
+  become: yes
+
+  tasks:
+  - name: Reboot host
+    reboot:
+      reboot_timeout: 500 # Adjust as needed
+
+  - name: Wait for hosts to come back online
+    wait_for_connection:
+      delay: 30
+      timeout: 500 # Adjust as needed
+
+  - name: Show hostname after reboot
+    shell: hostname
+    register: hostname_output
+
+  - name: Display hostname
+    debug:
+      var: hostname_output.stdout

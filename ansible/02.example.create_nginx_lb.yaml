@@ -1,0 +1,78 @@
+---
+- name: Install and Configure Nginx and NTP
+  hosts: loadbalancer
+  become: yes
+
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: latest
+
+    - name: Delete nginx.conf if it exists
+      file:
+        path: /etc/nginx/nginx.conf
+        state: absent
+      ignore_errors: yes
+
+    - name: Create nginx.conf
+      file:
+        path: /etc/nginx/nginx.conf
+        state: touch
+
+    - name: Update nginx.conf
+      blockinfile:
+        path: /etc/nginx/nginx.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - DO NOT EDIT"
+        insertafter: EOF
+        block: |
+          events {
+              worker_connections 768;
+              # multi_accept on;
+          }
+
+          stream {
+              upstream k8s_servers_http {
+                  server 192.168.10.10:6443;
+                  server 192.168.10.11:6443;
+                  server 192.168.10.12:6443;
+              }
+              server {
+                  listen 6443;
+                  proxy_pass k8s_servers_http;
+              }
+          }
+
+    - name: Install NTP
+      apt:
+        name: ntp
+        state: present
+
+    - name: Replace NTP configuration
+      replace:
+        path: /etc/ntp.conf
+        regexp: '^pool\s+\d\.ubuntu\.pool\.ntp\.org'
+        replace: '# replaced by Ansible'
+      loop:
+        - 'pool 0.ubuntu.pool.ntp.org'
+        - 'pool 1.ubuntu.pool.ntp.org'
+        - 'pool 2.ubuntu.pool.ntp.org'
+        - 'pool 3.ubuntu.pool.ntp.org'
+      become: yes
+
+    - name: Add new NTP configuration
+      blockinfile:
+        path: /etc/ntp.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        block: |
+          server 0.za.pool.ntp.org
+          server 1.za.pool.ntp.org
+          server 2.za.pool.ntp.org
+          server 3.za.pool.ntp.org
+      become: yes
+
+  handlers:
+    - name: Restart NTP service
+      service:
+        name: ntp
+        state: restarted
