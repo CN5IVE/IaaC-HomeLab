@@ -15,5 +15,3 @@ dns-pihole/dns_entries.txt
 
 ansible/inventory.ini
 ansible/02.nginx_lb.yaml
-ansible/03.ceph_time_server_config.yaml
-ansible/06.cephadm_install.yaml
