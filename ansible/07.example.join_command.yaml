@@ -1,0 +1,137 @@
+- name: Run kubeadm command on the first VM
+  hosts: k8s-cntlr[0]
+  become: yes
+  become_method: sudo
+  become_user: ubuntu
+
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/ubuntu"
+
+  tasks:
+  - name: Run kubeadm command to upload certs
+    command: sudo kubeadm init phase upload-certs --upload-certs
+    register: certs_output
+
+  - name: Create join token using certificate_key
+    shell: sudo kubeadm token create --print-join-command --certificate-key "{{ certs_output.stdout_lines[-1] }}"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{"sudo "+ join_command.stdout_lines | last | trim }} dest={{ join_command_location }} # defaults to your local cwd/join_command.out
+
+
+- hosts: k8s-cntlr:!k8s-cntlr[0]
+  become: true
+  become_user: ubuntu
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/ubuntu"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+ - name: Run kubeadm command on the first Control-Node
+  hosts: k8s-cntlr:!k8s-cntlr[0]
+  become: true
+  remote_user: ubuntu
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/ubuntu"
+
+  tasks:
+  - name: Create kube directory in user home
+    file:
+      path: "{{ home_dir }}/.kube"
+      state: directory
+      owner: 1000
+      group: 1000
+
+  - name: Configure kube/config files in user home
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "{{ home_dir }}/.kube/config"
+      remote_src: yes
+      owner: 1000
+      group: 1000
+  become: yes
+  become_user: root
+
+
+- hosts: k8s-cntlr[0]
+  become: true
+  become_method: sudo
+  become_user: ubuntu
+
+  vars:
+    join_command_location1: "join_command1.out"
+    home_dir: "/home/ubuntu"
+
+  tasks:
+  - name: Extract the join command
+    become: true
+    command: "kubeadm token create --print-join-command"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{ "sudo " + join_command.stdout_lines | last | trim }} dest={{ join_command_location1 }} # defaults to your local cwd/join_command.out
+
+- hosts: k8s-node  
+  become: true
+  become_user: ubuntu
+
+  vars:
+    join_command_location1: "join_command1.out"
+    home_dir: "/home/ubuntu"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location1) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+- name: Download Kubernetes config
+  hosts: k8s-cntlr[0]
+  become: true
+  vars:
+    local_kube_dir: "{{ home_dir }}/.kube/config"
+    home_dir: "/home/ubuntu"
+    remote_kube_config: "{{ home_dir }}/.kube/config"
+
+  tasks:
+  - name: Ensure local directory exists
+    file:
+      path: "{{ local_kube_dir }}"
+      state: directory
+
+  - name: Download kube config
+    fetch:
+      src: "{{ remote_kube_config }}"
+      dest: "{{ local_kube_dir }}"
+      flat: yes

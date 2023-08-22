@@ -1,0 +1,203 @@
+---
+- name: Configure Kubernetes prerequisites and Setup Kubernetes Master Node
+  hosts: k8s_cluster
+  become: yes
+
+  tasks:
+    - name: Configure Kubernetes prerequisites
+      block:
+        - name: Create k8s.conf file
+          file:
+            path: /etc/modules-load.d/k8s.conf
+            state: touch
+
+        - name: Update k8s.conf
+          lineinfile:
+            path: /etc/modules-load.d/k8s.conf
+            line: "{{ item }}"
+          with_items:
+            - overlay
+            - br_netfilter
+
+        - name: Load overlay and br_netfilter modules
+          command: modprobe {{ item }}
+          with_items:
+            - overlay
+            - br_netfilter
+
+        - name: Set sysctl values
+          sysctl:
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+            state: present
+          loop:
+            - {name: "net.bridge.bridge-nf-call-iptables", value: "1"}
+            - {name: "net.ipv4.ip_forward", value: "1"}
+            - {name: "net.bridge.bridge-nf-call-ip6tables", value: "1"}
+
+        - name: Install required packages
+          apt:
+            name: "{{ item }}"
+            state: present
+          with_items:
+            - curl
+            - gnupg2
+            - software-properties-common
+            - apt-transport-https
+            - ca-certificates
+
+        - name: Add Docker GPG key
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+            state: present
+
+        - name: Update apt cache
+          apt:
+            update_cache: yes
+
+        - name: Install containerd.io
+          apt:
+            name: containerd.io
+            state: present
+
+        - name: Create configure_containerd.sh script
+          copy:
+            content: |
+              #!/bin/bash
+              # Add your containerd configuration here
+            dest: /tmp/configure_containerd.sh
+            mode: '0755'
+
+        - name: Create or update configure_containerd.sh
+          ansible.builtin.copy:
+            content: |
+              #!/bin/bash
+              # Step 1: Switch to root user
+              sudo su -
+
+              # Step 2: Create directory /etc/containerd if not exists
+              mkdir -p /etc/containerd
+
+              # Step 3: Redirect containerd config to /etc/containerd/config.toml
+              containerd config default > /etc/containerd/config.toml
+
+              # Step 4: Modify SystemdCgroup option in config.toml
+              sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+            dest: /tmp/configure_containerd.sh
+            mode: '0755' # Set appropriate permissions 
+
+        - name: Change permissions
+          become: yes
+          become_method: sudo
+          shell: chmod +x /tmp/configure_containerd.sh
+
+        - name: Execute Shell Script
+          shell: /tmp/configure_containerd.sh
+          async: 300 # Timeout in seconds
+          poll: 0 # Poll every 0 seconds (don't wait for completion)
+          ignore_errors: yes
+          register: script_result
+
+        - name: Wait for Script Completion
+          async_status:
+            jid: "{{ script_result.ansible_job_id }}"
+          register: job_result
+          until: job_result.finished
+          retries: 1 # Retry up to 60 times (adjust as needed)
+          delay: 10 # Delay 10 seconds between retries
+
+        - name: Display Script Output
+          debug:
+            var: script_result
+
+        - name: Fail Play if Script Failed
+          fail:
+            msg: "Script execution failed with exit code {{ script_result.rc }}"
+          when: script_result.finished.failed | default(false)
+
+    - name: Setup Kubernetes Master Node
+      hosts: k8s-cntlr
+      become: yes
+      tasks:
+        - name: Enable kubelet service
+          systemd:
+            name: kubelet
+            enabled: yes
+          become: yes
+
+        - name: Pull Kubernetes images
+          command: sudo kubeadm config images pull --cri-socket unix:///run/containerd/containerd.sock
+          become: yes
+          async: 300  # Set a longer timeout value if needed
+          poll: 10
+          register: image_pull_result
+
+        - name: Wait for image pull to complete
+          async_status:
+            jid: "{{ image_pull_result.ansible_job_id }}"
+          register: image_pull_status
+          until: image_pull_status.finished
+          retries: 300  # Adjust the number of retries as needed
+          delay: 10     # Delay between retries
+
+        - name: Display image pull results per host
+          debug:
+            msg: "Image pull result on {{ inventory_hostname }}: {{ item }}"
+          loop: "{{ image_pull_status.results }}"
+---
+- name: Check and Manage containerd
+  hosts: k8s_cluster
+  become: true  # This enables privilege escalation
+
+  tasks:
+    - name: Check if containerd is running
+      shell: systemctl is-active containerd
+      register: containerd_status
+      ignore_errors: true
+
+    - name: Restart containerd if not running
+      shell: systemctl restart containerd
+      when: containerd_status.rc != 0
+
+    - name: Wait for containerd to start after restart
+      wait_for:
+        host: localhost
+        port: 2375
+        state: started
+      when: containerd_status.rc != 0
+
+    - name: Check containerd status after restart
+      shell: systemctl is-active containerd
+      register: restarted_containerd_status
+
+    - name: Debug output of containerd status
+      debug:
+        msg: "Containerd status after restart: {{ restarted_containerd_status.stdout }}"
+
+    - name: Reboot if containerd is still not running
+      reboot:
+        msg: "Rebooting because containerd is not running"
+      when: restarted_containerd_status.stdout != "active"
+      ignore_errors: true
+
+    - name: Wait for host to come back online after reboot
+      wait_for:
+        host: localhost
+        port: 22
+        delay: 30
+        timeout: 300
+        state: started
+
+    - name: Check containerd status after reboot
+      shell: systemctl is-active containerd
+      register: final_containerd_status
+
+    - name: Debug output of final containerd status
+      debug:
+        msg: "Final containerd status: {{ final_containerd_status.stdout }}"
