@@ -1,0 +1,4 @@
+# this defines what the join command filename will be
+join_command_location: "join_command.out"
+# setting the home directory for retreiving, saving, and executing files
+home_dir: "/home/tshepo"
