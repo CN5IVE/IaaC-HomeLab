@@ -2,3 +2,9 @@
 /packer/server/user-data
 
 
+/terraform/Iaac/terraform.tfstate
+/terraform/Iaac/terraform.tfstate.backup
+/terraform/Iaac/terraform.tfvars
+/terraform/Iaac/.terraform/
+/terraform/Iaac/.terraform.lock.hcl
+/terraform/Iaac/variables.tf
