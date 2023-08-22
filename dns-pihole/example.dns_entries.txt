@@ -1,10 +1,7 @@
 192.168.10.12 k8s-cntlr-03.local.lan
 192.168.10.11 k8s-cntlr-02.local.lan
-192.168.10.8 ceph-03.local.lan
 192.168.10.13 k8s-node-01.local.lan
 192.168.10.10 k8s-cntlr-01.local.lan
-192.168.10.7 ceph-02.local.lan
 192.168.10.5 kube-andreas-01.local.lan
 192.168.10.14 k8s-node-02.local.lan
 192.168.10.15 k8s-node-03.local.lan
-192.168.10.6 ceph-01.local.lan

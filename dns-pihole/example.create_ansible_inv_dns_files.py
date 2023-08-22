@@ -1,17 +1,10 @@
 import json
 
 state_files_and_groups = [
-    ("path-to-files/terraform/k8s-node/terraform.tfstate", "k8s-node"),
-    ("path-to-files/terraform/k8s-cntlr/terraform.tfstate", "k8s-cntlr"),
-    ("path-to-files/terraform/ceph/terraform.tfstate", "ceph"),
-    ("path-to-files/terraform/ceph/terraform.tfstate", "mons"),
-    ("path-to-files/terraform/ceph/terraform.tfstate", "mgrs"),
-    ("path-to-files/terraform/ceph/terraform.tfstate", "mdss"),
-    ("path-to-files/terraform/ceph/terraform.tfstate", "osds"),
-    ("path-to-files/terraform/others/terraform.tfstate", "grafana-server"),
-    ("path-to-files/terraform/others/terraform.tfstate", "loadbalancer"),
-    ("path-to-files/terraform/others/terraform.tfstate", "cephadmin"),
-    ("path-to-files/terraform/others/terraform.tfstate", "gwss"),
+    ("path-to-files/terraform.tfstate", "k8s-node"),
+    ("path-to-files/terraform.tfstate", "k8s-cntlr"),
+    ("path-to-files/terraform.tfstate", "loadbalancer"),
+
 ]
 
 grouped_instances = {group_name: [] for _, group_name in state_files_and_groups}
