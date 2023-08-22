@@ -8,3 +8,7 @@ terraform/terraform.tfvars
 terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/variables.tf
+
+dns-pihole/create_ansible_inv_dns_files.py
+dns-pihole/create_dns-pi-home-entries.py
+dns-pihole/dns_entries.txt
