@@ -60,7 +60,7 @@
         - 'pool 3.ubuntu.pool.ntp.org'
       become: yes
 
-    - name: Add new NTP configuration
+    - name: Add new NTP configuration   # Change to pool specific to your country, more information about pool name can be found at https://support.ntp.org/bin/view/Servers/NTPPoolServers
       blockinfile:
         path: /etc/ntp.conf
         marker: "# {mark} ANSIBLE MANAGED BLOCK"
