@@ -3,8 +3,8 @@
 
 
 terraform/terraform.tfstate
-terraform/IaaC/terraform.tfstate.backup
-terraform/IaaC/terraform.tfvars
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
 terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/variables.tf
