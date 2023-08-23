@@ -3,9 +3,9 @@ import os
 import paramiko
 
 state_files = {
-    ("path-to-files/terraform/terraform.tfstate", "k8s-node"),
-    ("path-to-files/terraform/terraform.tfstate", "k8s-cntlr"),
-    ("path-to-files/terraform/terraform.tfstate", "kube-andreas"),
+    ("/home/tshepo/IaaC-HomeLab/terraform/terraform.tfstate", "k8s-node"),
+    ("/home/tshepo/IaaC-HomeLab/terraform/terraform.tfstate", "k8s-cntlr"),
+    ("/home/tshepo/IaaC-HomeLab/terraform/terraform.tfstate", "kube-andreas"),
 
 }
 
@@ -23,7 +23,7 @@ for state_file, group_name in state_files:
                     attributes = instance.get('attributes', {})
                     ipconfig0 = attributes.get('ipconfig0', '').replace("ip=", "")
                     ipconfig0 = ipconfig0.split("/24,gw=133.14.14.1")[0].strip()
-                    name = attributes.get('name', '') + ".local.lan"
+                    name = attributes.get('name', '') + ".localnetwork.lan"
 
                     if name.startswith(group_name):
                         if group_name not in grouped_instances:
@@ -38,7 +38,7 @@ for group_instances in grouped_instances.values():
     group_instances.sort()  # Sort to make duplicates adjacent
     group_instances[:] = [group_instances[i] for i in range(len(group_instances)) if i == 0 or group_instances[i] != group_instances[i - 1]]
 
-inventory_file = "path-to-files/ansible/inventory.ini" # Change directory based on your structure
+inventory_file = "/home/tshepo/IaaC-HomeLab/ansible/inventory.ini" # Change directory based on your structure
 
 with open(inventory_file, 'w') as f:
     for group_name, instances in grouped_instances.items():
@@ -51,7 +51,7 @@ with open(inventory_file, 'w') as f:
         
 print(f"Inventory file '{inventory_file}' created successfully.")
 
-dns_entries_file = "path-to-files/dns-pihole/dns_entries.txt" # Change directory based on your structure
+dns_entries_file = "/home/tshepo/IaaC-HomeLab/dns-pihole/dns_entries.txt" # Change directory based on your structure
 
 with open(dns_entries_file, 'w') as f:
     for instance in grouped_instances['all']:
@@ -59,7 +59,7 @@ with open(dns_entries_file, 'w') as f:
         
 print(f"DNS entries file '{dns_entries_file}' created successfully.")
 
-output_file = "path-to-files/dns-pihole/proxmox_vm_names.txt" # Change directory based on your structure
+output_file = "/home/tshepo/IaaC-HomeLab/dns-pihole/proxmox_vm_names.txt" # Change directory based on your structure
 
 with open(output_file, 'w') as f:
     for instance in grouped_instances['all']:
@@ -70,7 +70,7 @@ print(f"Output file '{output_file}' created successfully.")
 
 config_to_append = "[k8s_cluster:children]\nk8s-cntlr\nk8s-node\n"
 
-with open("path-to-files/ansible/inventory.ini" , "a") as file: # Change directory based on your structure
+with open("/home/tshepo/IaaC-HomeLab/ansible/inventory.ini" , "a") as file: # Change directory based on your structure
     file.write(config_to_append)
 
 print("Configuration appended to inventory.ini")
