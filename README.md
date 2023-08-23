@@ -8,8 +8,8 @@ In this setup guide, we will walk through the process of creating a comprehensiv
 Before starting, ensure that you have the following prerequisites in place:
 
 Hardware: A dedicated server or multiple servers with sufficient resources to run virtual machines and containers.
-Proxmox: Install and configure Proxmox Virtual Environment on each server.
-Networking: Setup a reliable network infrastructure with proper IP addressing and connectivity between servers.
+ -- Proxmox: Install and configure Proxmox Virtual Environment on each server.
+ -- Networking: Setup a reliable network infrastructure with proper IP addressing and connectivity between servers.
 
 ### Steps
 
