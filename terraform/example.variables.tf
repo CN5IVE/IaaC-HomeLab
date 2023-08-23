@@ -29,28 +29,7 @@ variable "vm_list" {
       "kube-andreas-01" = {
         vmid = "102"
         ipconfig0 = "ip=192.168.10.5/24,gw=192.168.10.1" # ip for vm 
-        memory = "8192"
-        cores = "2"
-        disk = "20G"
-      }
-      "ceph-01" = {
-        vmid = "103"
-        ipconfig0 = "ip=192.168.10.6/24,gw=192.168.10.1" # ip for vm 
-        memory = "8192"
-        cores = "2"
-        disk = "20G"
-	  	}
-		"ceph-02" = {
-        vmid = "104"
-        ipconfig0 = "ip=192.168.10.7/24,gw=192.168.10.1" # ip for vm 
-        memory = "8192"
-        cores = "2"
-        disk = "20G"
-      }
-	   "ceph-03" = {
-        vmid = "105"
-        ipconfig0 = "ip=192.168.10.8/24,gw=192.168.10.1" # ip for vm 
-        memory = "8192"
+        memory = "2048"
         cores = "2"
         disk = "20G"
       }
@@ -81,24 +60,24 @@ variable "vm_list" {
       "k8s-node-01" = {
         vmid = "301"
         ipconfig0 = "ip=192.168.10.13/24,gw=192.168.10.1" # ip for vm 
-        memory = "4096"
-        cores = "2"
+        memory = "8196"
+        cores = "4"
         disk = "20G"
 
       }
       "k8s-node-02" = {
         vmid = "302"
         ipconfig0 = "ip=192.168.10.14/24,gw=192.168.10.1" # ip for vm 
-        memory = "4096"
-        cores = "2"
+        memory = "8196"
+        cores = "4"
         disk = "20G"
 
       }
       "k8s-node-03" = {
         vmid = "303"
         ipconfig0 = "ip=192.168.10.15/24,gw=192.168.10.1" # ip for vm 
-        memory = "4096"
-        cores = "2"
+        memory = "8196"
+        cores = "4"
         disk = "20G"
 
       }      

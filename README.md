@@ -1,4 +1,4 @@
-# Home Lab Setup with Proxmox for HA Ceph Cluster and HA Kubernetes Cluster
+# Home Lab Setup with Proxmox for HA Ceph Cluster on an HA Kubernetes Cluster
 
 
 In this setup guide, we will walk through the process of creating a comprehensive home lab environment using Proxmox. Our goal is to configure a High Availability (HA) Ceph Cluster, an HA Kubernetes Cluster, along with additional configurations for an NGINX Load Balancer, Grafana Server, and NTP Server.
