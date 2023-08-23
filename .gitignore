@@ -14,10 +14,3 @@ dns-pihole/create_dns-pi-home-entries.py
 dns-pihole/dns_entries.txt
 
 ansible/inventory.ini
-ansible/02.nginx_lb.yaml
-ansible/06.initialize_cluster.yaml
-ansible/07.join_command.yaml
-ansible/00.ansible-vars.yml
-ansible/08.deploy_metallb.yaml
-ansible/09.ceateadminuser.yaml
-ansible/11.deploy_prometheus_grafana.yaml
