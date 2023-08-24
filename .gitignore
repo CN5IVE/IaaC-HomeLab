@@ -14,3 +14,4 @@ dns-pihole/create_dns-pi-home-entries.py
 dns-pihole/dns_entries.txt
 
 ansible/inventory.ini
+ansible/join_command.out

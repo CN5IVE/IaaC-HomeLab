@@ -1,0 +1,983 @@
+- name: Update and Upgrade Ubuntu VMs
+  hosts: all
+  become: true
+  tasks:
+  - name: Update package cache
+    apt:
+      update_cache: yes
+
+  - name: Upgrade packages
+    apt:
+      upgrade: dist
+
+  - name: Autoremove unused packages
+    apt:
+      autoremove: yes
+
+- name: Update Hostname and Hosts File
+  hosts: all
+  become: true
+  tasks:
+  - name: Set hostname
+    hostname:
+      name: "{{ inventory_hostname }}"
+
+  - name: Update /etc/hostname
+    lineinfile:
+      path: /etc/hostname
+      line: "{{ inventory_hostname }}"
+    when: inventory_hostname != ansible_hostname
+
+- name: Update /etc/hosts
+  hosts: all
+  become: true
+  
+  tasks:
+    - name: Get the hostname from the inventory
+      set_fact:
+        new_hostname: "{{ inventory_hostname }}"
+      
+    - name: Update /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1 {{ new_hostname }}"
+
+
+- name: Reboot and Show Hostnames After Reboot
+  hosts: all
+  become: yes
+
+  tasks:
+  - name: Reboot host
+    reboot:
+      reboot_timeout: 300 # Adjust as needed
+
+  - name: Wait for hosts to come back online
+    wait_for_connection:
+      delay: 10
+      timeout: 300 # Adjust as needed
+
+  - name: Show hostname after reboot
+    shell: hostname
+    register: hostname_output
+
+  - name: Display hostname
+    debug:
+      var: hostname_output.stdout
+
+
+- name: Install and configure Nginx
+  hosts: kube-andreas
+  become: yes
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: latest
+
+    - name: Delete nginx.conf if it exists
+      file:
+        path: /etc/nginx/nginx.conf
+        state: absent
+      ignore_errors: yes
+
+    - name: Create nginx.conf
+      file:
+        path: /etc/nginx/nginx.conf
+        state: touch
+
+    - name: Update nginx.conf
+      blockinfile:
+        path: /etc/nginx/nginx.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - DO NOT EDIT"
+        insertafter: EOF
+        block: |
+          load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+          
+          events {
+              worker_connections 768;
+              # multi_accept on;
+          }
+
+          stream {
+              upstream k8s_servers_http {
+                  
+                  server 133.14.14.10:6443;
+                  server 133.14.14.11:6443;
+                  server 133.14.14.12:6443;
+              }
+              server {
+                  listen 6443;
+                  proxy_pass k8s_servers_http;
+              }
+          }
+
+- name: Install Kubernetes dependencies and add repository
+  hosts: k8s_cluster
+  become: yes
+  tasks:
+  - name: Install required packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+    - curl
+    - apt-transport-https
+    become: yes
+
+  - name: Download and install Google Cloud apt key
+    shell: |
+      curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/k8s.gpg
+      curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+    become: yes
+
+  - name: Add Kubernetes repository
+    shell: |
+      echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+    become: yes
+
+- name: Install Kubernetes components
+  hosts: k8s_cluster
+  become: yes # Run tasks with sudo privileges
+
+  tasks:
+  - name: Update APT package cache
+    apt:
+      update_cache: yes
+
+  - name: Install required packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+    - wget
+    - curl
+    - vim
+    - git
+    - kubelet
+    - kubeadm
+    - kubectl
+
+  - name: Mark Kubernetes packages on hold
+    shell: sudo apt-mark hold {{ item }}
+    loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Configure System
+  hosts: k8s_cluster
+  become: yes
+
+  tasks:
+  - name: Disable Swap
+    command: swapoff -a
+    ignore_errors: true
+
+  - name: Debug Current /etc/fstab Content
+    command: cat /etc/fstab
+    register: current_fstab_content
+
+  - debug:
+      var: current_fstab_content.stdout_lines
+
+  - name: Comment Swap Line in /etc/fstab
+    replace:
+      path: /etc/fstab
+      regexp: '^/dev/mapper/.*swap.*'
+      replace: '#\g<0>'
+    notify: Reload System
+
+  - name: Comment out /swap.img line in /etc/fstab
+    replace:
+      path: /etc/fstab
+      regexp: '^/swap.img.*'
+      replace: '#\g<0>'
+
+  - name: Debug Updated /etc/fstab Content
+    command: cat /etc/fstab
+    register: updated_fstab_content
+
+  - debug:
+      var: updated_fstab_content.stdout_lines
+
+  - name: Load Kernel Modules
+    command: modprobe {{ item }}
+    loop:
+    - overlay
+    - br_netfilter
+
+  - name: Create kubernetes.conf File
+    file:
+      path: /etc/sysctl.d/kubernetes.conf
+      state: touch
+
+  - name: Update kubernetes.conf
+    blockinfile:
+      path: /etc/sysctl.d/kubernetes.conf
+      block: |
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward = 1
+    notify: Reload System
+
+  - name: Apply sysctl Settings
+    command: sysctl -p /etc/sysctl.d/kubernetes.conf
+
+  handlers:
+  - name: Reload System
+    command: sysctl --system
+- name: Configure Kubernetes prerequisites
+  hosts: k8s_cluster
+  become: true
+  tasks:
+  - name: Create k8s.conf file
+    file:
+      path: /etc/modules-load.d/k8s.conf
+      state: touch
+
+  - name: Update k8s.conf
+    lineinfile:
+      path: /etc/modules-load.d/k8s.conf
+      line: "{{ item }}"
+    with_items:
+    - overlay
+    - br_netfilter
+
+  - name: Load overlay and br_netfilter modules
+    command: modprobe {{ item }}
+    with_items:
+    - overlay
+    - br_netfilter
+
+  - name: Set sysctl values
+    sysctl:
+      name: "{{ item.name }}"
+      value: "{{ item.value }}"
+      state: present
+    loop:
+    - {name: "net.bridge.bridge-nf-call-iptables", value: "1"}
+    - {name: "net.ipv4.ip_forward", value: "1"}
+    - {name: "net.bridge.bridge-nf-call-ip6tables", value: "1",}
+
+  - name: Install required packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    with_items:
+    - curl
+    - gnupg2
+    - software-properties-common
+    - apt-transport-https
+    - ca-certificates
+
+  - name: Add Docker GPG key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Add Docker repository
+    apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+      state: present
+
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+
+  - name: Install containerd.io
+    apt:
+      name: containerd.io
+      state: present
+
+  - name: Create configure_containerd.sh script
+    copy:
+      content: |
+        #!/bin/bash
+        # Add your containerd configuration here
+      dest: /tmp/configure_containerd.sh
+      mode: '0755'
+
+
+  - name: Create or update configure_containerd.sh
+    ansible.builtin.copy:
+      content: |
+        #!/bin/bash
+        # Step 1: Switch to root user
+        sudo su -
+
+        # Step 2: Create directory /etc/containerd if not exists
+        mkdir -p /etc/containerd
+
+        # Step 3: Redirect containerd config to /etc/containerd/config.toml
+        containerd config default > /etc/containerd/config.toml
+
+        # Step 4: Modify SystemdCgroup option in config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+      dest: /tmp/configure_containerd.sh
+      mode: '0755' # Set appropriate permissions 
+
+  - name: Change permissions
+    become: yes
+    become_method: sudo
+    shell: chmod +x /tmp/configure_containerd.sh
+
+
+
+  - name: Execute Shell Script
+    shell: /tmp/configure_containerd.sh
+    async: 300 # Timeout in seconds
+    poll: 0 # Poll every 0 seconds (don't wait for completion)
+    ignore_errors: yes
+    register: script_result
+
+  - name: Wait for Script Completion
+    async_status:
+      jid: "{{ script_result.ansible_job_id }}"
+    register: job_result
+    until: job_result.finished
+    retries: 1 # Retry up to 60 times (adjust as needed)
+    delay: 10 # Delay 10 seconds between retries
+
+  - name: Display Script Output
+    debug:
+      var: script_result
+
+  - name: Fail Play if Script Failed
+    fail:
+      msg: "Script execution failed with exit code {{ script_result.rc }}"
+    when: script_result.finished.failed | default(false)
+
+
+- name: Reboot and Show Hostnames After Reboot
+  hosts: k8s-cntlr
+  become: yes
+
+  tasks:
+  - name: Reboot host
+    reboot:
+      reboot_timeout: 300 # Adjust as needed
+
+  - name: Wait for hosts to come back online
+    wait_for_connection:
+      delay: 10
+      timeout: 300 # Adjust as needed
+
+  - name: Show hostname after reboot
+    shell: hostname
+    register: hostname_output
+
+  - name: Display hostname
+    debug:
+      var: hostname_output.stdout
+
+- name: Setup Kubernetes Master Node
+  hosts: k8s-cntlr
+  become: yes
+
+  tasks:
+    - name: Enable kubelet service
+      systemd:
+        name: kubelet
+        enabled: yes
+      become: yes
+
+    - name: Pull Kubernetes images
+      command: sudo kubeadm config images pull 
+      become: yes
+
+- name: Run kubeadm init command
+  hosts: k8s-cntlr[0]
+  become: true
+  remote_user: tshepo
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Display kubeadm init output
+    debug:
+      var: kubeadm_output.stdout_lines
+
+  - name: restart containerd
+    service:
+      name: containerd
+      state: restarted
+
+  - name: Initialize Kubernetes cluster
+    command: "sudo kubeadm init --pod-network-cidr=10.244.0.0/16  --control-plane-endpoint=133.14.14.5"
+    args:
+      creates: /etc/kubernetes/admin.conf # skip this task if the file already exists
+    register: kube_init
+
+  - name: show kube init info
+    debug:
+      var: kube_init
+
+  - name: Create .kube directory in user home
+    file:
+      path: "{{ home_dir }}/.kube"
+      state: directory
+      owner: 1000
+      group: 1000
+  - name: Configure .kube/config files in user home
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "{{ home_dir }}/.kube/config"
+      remote_src: yes
+      owner: 1000
+      group: 1000
+
+  - name: restart kubelet for config changes
+    service:
+      name: kubelet
+      state: restarted
+
+  - name: get flannel networking
+    get_url:
+      url: https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      dest: "{{ home_dir }}/kube-flannel.yml"
+
+  - name: apply flannel networking
+    become: no
+    command: kubectl apply -f "{{ home_dir }}/kube-flannel.yml"
+
+  - name: get dashboard
+    get_url:
+      url: https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+      dest: "{{ home_dir }}/dashboard.yaml"
+
+  - name: apply dashboard
+    become: no
+    command: kubectl apply -f "{{ home_dir }}/dashboard.yaml"
+
+
+- name: Run kubeadm command on the first VM
+  hosts: k8s-cntlr[0]
+  become: yes
+  become_method: sudo
+  become_user: tshepo
+
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Run kubeadm command to upload certs
+    command: sudo kubeadm init phase upload-certs --upload-certs
+    register: certs_output
+
+  - name: Create join token using certificate_key
+    shell: sudo kubeadm token create --print-join-command --certificate-key "{{ certs_output.stdout_lines[-1] }}"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{"sudo "+ join_command.stdout_lines | last | trim }} dest={{ join_command_location }} # defaults to your local cwd/join_command.out
+
+
+- hosts: k8s-cntlr:!k8s-cntlr[0]
+  become: true
+  become_user: tshepo
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+  - name: Create kube directory in user home
+    file:
+      path: "{{ home_dir }}/.kube"
+      state: directory
+      owner: 1000
+      group: 1000
+
+  - name: Configure kube/config files in user home
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "{{ home_dir }}/.kube/config"
+      remote_src: yes
+      owner: 1000
+      group: 1000
+
+
+- name: Run kubeadm command on the first Controller
+  hosts: k8s-cntlr:!k8s-cntlr[0]
+  become: true
+  remote_user: tshepo
+
+  vars:
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Create kube directory in user home
+    file:
+      path: "{{ home_dir }}/.kube"
+      state: directory
+      owner: 1000
+      group: 1000
+
+  - name: Configure kube/config files in user home
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "{{ home_dir }}/.kube/config"
+      remote_src: yes
+      owner: 1000
+      group: 1000
+
+
+- hosts: k8s-cntlr[0]
+  become: true
+  become_method: sudo
+  become_user: tshepo
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Extract the join command
+    become: true
+    command: "kubeadm token create --print-join-command"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{ "sudo " + join_command.stdout_lines | last | trim }} dest={{ join_command_location }} # defaults to your local cwd/join_command.out
+
+- hosts: k8s-node
+  become: true
+  become_user: tshepo
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+
+
+- hosts: k8s-cntlr[0]
+  become: true
+  become_method: sudo
+  become_user: tshepo
+
+  vars:
+    join_command_location1: "join_command1.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Extract the join command
+    become: true
+    command: "kubeadm token create --print-join-command"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{ "sudo " + join_command.stdout_lines | last | trim }} dest={{ join_command_location1 }} # defaults to your local cwd/join_command.out
+
+- hosts: k8s-node
+  become: true
+  become_user: tshepo
+
+  vars:
+    join_command_location1: "join_command1.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location1) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+
+ - name: Run kubeadm init command
+   hosts: k8s-cntlr[0]
+   become: true
+   remote_user: tshepo
+   vars:
+     join_command_location: "join_command.out"
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: Display kubeadm init output
+     debug:
+       var: kubeadm_output.stdout_lines
+
+   - name: restart containerd
+     service:
+       name: containerd
+       state: restarted
+
+   - name: Initialize Kubernetes cluster
+     command: "sudo kubeadm init --pod-network-cidr=10.244.0.0/16  --control-plane-endpoint=133.14.14.5:6443"
+     args:
+       creates: /etc/kubernetes/admin.conf  skip this task if the file already exists
+     register: kube_init
+
+   - name: show kube init info
+     debug:
+       var: kube_init
+
+   - name: Create .kube directory in user home
+     file:
+       path: "{{ home_dir }}/.kube"
+       state: directory
+       owner: 1000
+       group: 1000
+   - name: Configure .kube/config files in user home
+     copy:
+       src: /etc/kubernetes/admin.conf
+       dest: "{{ home_dir }}/.kube/config"
+       remote_src: yes
+       owner: 1000
+       group: 1000
+
+   - name: restart kubelet for config changes
+     service:
+       name: kubelet
+       state: restarted
+
+   - name: get flannel networking
+     get_url:
+       url: https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+       dest: "{{ home_dir }}/kube-flannel.yml"
+
+   - name: apply flannel networking
+     become: no
+     command: kubectl apply -f "{{ home_dir }}/kube-flannel.yml"
+
+   - name: get dashboard
+     get_url:
+       url: https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+       dest: "{{ home_dir }}/dashboard.yaml"
+
+   - name: apply dashboard
+     become: no
+     command: kubectl apply -f "{{ home_dir }}/dashboard.yaml"
+
+
+ - name: Run kubeadm command on the first Controller
+   hosts: k8s-cntlr[0]
+   become: yes
+   become_method: sudo
+   become_user: tshepo
+
+   vars:
+     join_command_location: "join_command.out"
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: Run kubeadm command to upload certs
+     command: sudo kubeadm init phase upload-certs --upload-certs
+     register: certs_output
+
+   - name: Create join token using certificate_key
+     shell: sudo kubeadm token create --print-join-command --certificate-key "{{ certs_output.stdout_lines[-1] }}"
+     register: join_command
+
+   - name: show join command
+     debug:
+       var: join_command
+
+   - name: Save kubeadm join command for cluster
+     local_action: copy content={{"sudo "+ join_command.stdout_lines | last | trim }} dest={{ join_command_location }}  defaults to your local cwd/join_command.out
+
+
+ - hosts: k8s-cntlr:!k8s-cntlr[0]
+   become: true
+   become_user: tshepo
+
+   vars:
+     join_command_location: "join_command.out"
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: read join command
+     debug: msg={{ lookup('file', join_command_location) }}
+     register: join_command_local
+
+   - name: show join command
+     debug:
+       var: join_command_local.msg
+
+   - name: join agents to cluster
+     command: "{{ join_command_local.msg }}"
+
+   - name: Create kube directory in user home
+     file:
+       path: "{{ home_dir }}/.kube"
+       state: directory
+       owner: 1000
+       group: 1000
+
+   - name: Configure kube/config files in user home
+     copy:
+       src: /etc/kubernetes/admin.conf
+       dest: "{{ home_dir }}/.kube/config"
+       remote_src: yes
+       owner: 1000
+       group: 1000
+
+
+ - name: Run kubeadm command on the first VM
+   hosts: k8s-cntlr:!k8s-cntlr[0]
+   become: true
+   remote_user: tshepo
+
+   vars:
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: Create kube directory in user home
+     file:
+       path: "{{ home_dir }}/.kube"
+       state: directory
+       owner: 1000
+       group: 1000
+
+   - name: Configure kube/config files in user home
+     copy:
+       src: /etc/kubernetes/admin.conf
+       dest: "{{ home_dir }}/.kube/config"
+       remote_src: yes
+       owner: 1000
+       group: 1000
+
+
+ - hosts: k8s-cntlr[0]
+   become: true
+   become_method: sudo
+   become_user: tshepo
+
+   vars:
+     join_command_location: "join_command.out"
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: Extract the join command
+     become: true
+     command: "kubeadm token create --print-join-command"
+     register: join_command
+
+   - name: show join command
+     debug:
+       var: join_command
+
+   - name: Save kubeadm join command for cluster
+     local_action: copy content={{ "sudo " + join_command.stdout_lines | last | trim }} dest={{ join_command_location }}  defaults to your local cwd/join_command.out
+
+ - hosts: k8s-node
+   become: true
+   become_user: tshepo
+
+   vars:
+     join_command_location: "join_command.out"
+     home_dir: "/home/tshepo"
+
+   tasks:
+   - name: read join command
+     debug: msg={{ lookup('file', join_command_location) }}
+     register: join_command_local
+
+   - name: show join command
+     debug:
+       var: join_command_local.msg
+
+   - name: join agents to cluster
+     command: "{{ join_command_local.msg }}"
+
+
+
+- hosts: k8s-cntlr[0]
+  become: true
+  become_method: sudo
+  become_user: tshepo
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: Extract the join command
+    become: true
+    command: "kubeadm token create --print-join-command"
+    register: join_command
+
+  - name: show join command
+    debug:
+      var: join_command
+
+  - name: Save kubeadm join command for cluster
+    local_action: copy content={{ "sudo " + join_command.stdout_lines | last | trim }} dest={{ join_command_location }}  defaults to your local cwd/join_command.out
+
+- hosts: k8s-node
+  become: true
+  become_user: tshepo
+
+  vars:
+    join_command_location: "join_command.out"
+    home_dir: "/home/tshepo"
+
+  tasks:
+  - name: read join command
+    debug: msg={{ lookup('file', join_command_location) }}
+    register: join_command_local
+
+  - name: show join command
+    debug:
+      var: join_command_local.msg
+
+  - name: join agents to cluster
+    command: "{{ join_command_local.msg }}"
+
+
+
+- name: Download Kubernetes config
+  hosts: k8s-cntlr[0]
+  become: true
+  vars:
+    local_kube_dir: "{{ home_dir }}/config"
+    home_dir: "/home/tshepo"
+    remote_kube_config: "{{ home_dir }}/.kube/config"
+
+  tasks:
+  - name: Ensure local directory exists
+    file:
+      path: "{{ local_kube_dir }}"
+      state: directory
+
+  - name: Download kube config
+    fetch:
+      src: "{{ remote_kube_config }}"
+      dest: "{{ local_kube_dir }}"
+      flat: yes
+
+- name: Check and Deploy MetalLB
+  hosts: k8s-cntlr[0]
+  become: yes
+  vars:
+    home_dir: "/home/tshepo"
+
+  tasks:
+    - name: Get list of all namespaces
+      command: kubectl get namespaces -o json --kubeconfig={{ home_dir}}/.kube/config
+      register: namespaces_output
+      changed_when: false
+      ignore_errors: true
+
+    - name: Extract namespace names
+      set_fact:
+        namespace_names: "{{ namespaces_output.stdout | from_json | json_query('items[*].metadata.name') }}"
+      when: namespaces_output.stdout is defined and namespaces_output.stdout != ""
+
+    - name: Check if all pods are running
+      shell: kubectl get pods --all-namespaces --field-selector=status.phase!=Running -o json --kubeconfig={{ home_dir}}/.kube/config
+      register: pods_result
+      ignore_errors: true
+
+    - name: Print pods result
+      debug:
+        var: pods_result.stdout_lines
+
+    - name: get metallb
+      get_url:
+        url: https://raw.githubusercontent.com/metallb/metallb/v0.13.10/config/manifests/metallb-native.yaml
+        dest: "{{ home_dir }}/metallb-native.yaml"
+
+    - name: apply dashboard
+      become: no
+      command: kubectl apply -f "{{ home_dir }}/metallb-native.yaml"
+
+
+- name: Check Metallb System Pods
+  hosts: k8s-cntlr[0]
+
+  vars:
+    home_dir: "/home/tshepo"
+
+
+  tasks:
+    - name: Get pods status in metallb-system namespace
+      shell: kubectl get pods -n metallb-system -o json
+      register: pods_output
+      changed_when: false  # We don't want Ansible to treat this as a change
+
+    - name: Parse pods status
+      set_fact:
+        running_pods: "{{ pods_output.stdout | from_json | json_query(query) }}"
+      vars:
+        query: "items[?status.phase=='Running'].metadata.name"
+
+    - name: Update ipaddress_pools.yaml if pods are running
+      block:
+        - name: Generate YAML content
+          set_fact:
+            yaml_content: |
+              apiVersion: metallb.io/v1beta1
+              kind: IPAddressPool
+              metadata:
+                name: production
+                namespace: metallb-system
+              spec:
+                addresses:
+                  - 133.14.14.30-133.14.14.50
+              ---
+              apiVersion: metallb.io/v1beta1
+              kind: L2Advertisement
+              metadata:
+                name: l2-advert
+                namespace: metallb-system
+
+        - name: Write YAML content to file
+          ansible.builtin.copy:
+            content: "{{ yaml_content }}"
+            dest: "{{ home_dir }}/ipaddress_pools.yaml"
+            mode: '0644'
+
+      when: running_pods | length > 0
+
+    - name: Apply IP Address Pools YAML
+      command: "kubectl apply -f {{ home_dir }}/ipaddress_pools.yaml"
+      become: true
+
+      

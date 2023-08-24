@@ -1,7 +1,7 @@
-k8s-cntlr-01.localnetwork.lan
-k8s-cntlr-02.localnetwork.lan
-k8s-cntlr-03.localnetwork.lan
-k8s-node-01.localnetwork.lan
-k8s-node-02.localnetwork.lan
-k8s-node-03.localnetwork.lan
-kube-andreas-01.localnetwork.lan
+k8s-cntlr-01.ribaseleke.lan
+k8s-cntlr-02.ribaseleke.lan
+k8s-cntlr-03.ribaseleke.lan
+k8s-node-01.ribaseleke.lan
+k8s-node-02.ribaseleke.lan
+k8s-node-03.ribaseleke.lan
+kube-andreas-01.ribaseleke.lan
