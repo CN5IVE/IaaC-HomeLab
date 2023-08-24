@@ -6,4 +6,4 @@ kubectl --namespace monitoring patch svc alertmanager-main -p '{"spec": {"type":
 kubectl --namespace monitoring patch svc grafana -p '{"spec": {"type": "LoadBalancer"}}'
 
 # Patching service in the 'kubernetes-dashboard' namespace
-# kubectl --namespace kubernetes-dashboard patch svc kubernetes-dashboard -p '{"spec": {"type": "LoadBalancer"}}'
+kubectl --namespace kubernetes-dashboard patch svc kubernetes-dashboard -p '{"spec": {"type": "LoadBalancer"}}'
